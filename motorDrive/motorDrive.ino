@@ -1,30 +1,26 @@
-#include <Wire.h>
+#include <Arduino.h>
 #include <Servo.h>
 
-const int STATE_R = 1;
-const int STATE_L = 2;
-const int STATE_r = 3;
-const int STATE_l = 4;
-const int STATE_U = 5;
-const int STATE_D = 6;
+const int STATE_END = 0;
+const int STATE_OP = 1;
+const int STATE_NUM = 2;
+int state = 0, op = 0, opNum;
 
-const int L_PWM = 5; // ENA
+const int R_PWM = 5; // ENA
 const int R_BACK = 4; // IN1
 const int R_FORWARD = 3; // IN2
-const int R_PWM = 6; // ENB
+const int L_PWM = 6; // ENB
 const int L_FORWARD = 7; // IN3
 const int L_BACK = 8; // IN4
 const int servo1 = 9;
 const int servo2 = 10;
+const int maxSpeed = 65;
 
 Servo myservo1;
 Servo myservo2;
 
 void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(9600);
-  Wire.begin(4);                // join i2c bus with address #4
-  Wire.onReceive(receiveEvent); // register event
+  Serial.begin(115200);
   pinMode(R_PWM, OUTPUT);
   pinMode(L_PWM, OUTPUT);
   pinMode(L_BACK, OUTPUT);
@@ -34,98 +30,56 @@ void setup() {
 
   myservo1.attach(servo1);
   myservo2.attach(servo2);
-    myservo1.writeMicroseconds(1000);
- myservo2.writeMicroseconds(2400);
 }
 
 void loop() {
-//  for(int i = 0; i < 3000; i++ ) {
-//     myservo2.writeMicroseconds(i);
-//     Serial.println(i);
-//     delay(1);
-//  }
-//    for(int i = 2400; i > 600; i--) {
-//     myservo2.writeMicroseconds(i);
-//     Serial.println(i);
-//     delay(3);
-//  }
-//  for(int i = 30; i < 150; i ++ ) {
-//     myservo1.write(i);
-//     delay(20);
-//  }
-//    for(int i = 150; i > 30; i -- ) {
-//     myservo1.write(i);
-//     delay(20);
-//  }
-  delay(100);
-}
-
-void receiveEvent(int howMany)
-{
-  while (0 < Wire.available())
-  {
-    int x = Wire.read();
-    handleReceive(x);
+  if (Serial.available() > 0) {
+    char ch = Serial.read();
+    handleReceive(ch);
   }
-}
-
-void moveR(int x) {
-  Serial.print("move r:");
-  Serial.println(x);
-  if ( x == 0) {
-    digitalWrite(L_BACK, 0);
-    digitalWrite(L_FORWARD, 0);
-  } else if (x < 0) {
-    digitalWrite(L_BACK, 1);
-    digitalWrite(L_FORWARD, 0);
-  } else {
-    digitalWrite(L_BACK, 0);
-    digitalWrite(L_FORWARD, 1);
-  }
-
-  analogWrite(R_PWM, abs(x));
 }
 
 void moveL(int x) {
-  Serial.print("move l:");
+  Serial.print("move r:");
   Serial.println(x);
-  if ( x == 0) {
-    digitalWrite(R_BACK, 0);
-    digitalWrite(R_FORWARD, 0);
-  } else if (x < 0) {
-    digitalWrite(R_BACK, 1);
-    digitalWrite(R_FORWARD, 0);
-  } else {
-    digitalWrite(R_BACK, 0);
-    digitalWrite(R_FORWARD, 1);
-  }
-
+  digitalWrite(L_BACK, x < 0);
+  digitalWrite(L_FORWARD, x > 0);
   analogWrite(L_PWM, abs(x));
 }
 
-void handleReceive(int x)
-{
-  static int state = 0;
+void moveR(int x) {
+  digitalWrite(R_BACK, x < 0);
+  digitalWrite(R_FORWARD, x > 0);
+  analogWrite(R_PWM, abs(x));
+}
 
-  if (state == 0) {
-    switch (x) {
-      case 'R': state = STATE_R; break;
-      case 'r': state = STATE_r; break;
-      case 'L': state = STATE_L; break;
-      case 'l': state = STATE_l; break;
-      case 'U': state = STATE_U; break;
-      case 'D': state = STATE_D; break;
-      case 'O': state = 0;
+void handleReceive(char x)
+{
+  if (x == 'M') {
+    state = STATE_OP;
+    op = opNum = 0;
+  } else if (x == ';') {
+    state = STATE_END;
+    switch (op)
+    {
+      case 1: moveL(opNum * maxSpeed / 100); break;
+      case 2: moveR(-opNum * maxSpeed / 100); break;
+      case 3: moveL(-opNum * maxSpeed / 100); break;
+      case 4: moveR(opNum * maxSpeed / 100); break;
+      case 5: myservo1.write(opNum); break;
+      case 6: myservo2.write(opNum); break;
+      default:
+        break;
     }
-  } else {
-    switch (state) {
-      case STATE_L: moveL(x); break;
-      case STATE_l: moveL(-x); break;
-      case STATE_R: moveR(x); break;
-      case STATE_r: moveR(-x);
-      case STATE_U: myservo1.write(x);
-      case STATE_D: myservo2.write(x);
+  } else if (state == STATE_OP) {
+    if (x == ',') {
+      state = STATE_NUM;
+      return;
     }
-    state = 0;
+    op *= 10;
+    op += x - '0';
+  } else if (state == STATE_NUM) {
+    opNum *= 10;
+    opNum += x - '0';
   }
 }
